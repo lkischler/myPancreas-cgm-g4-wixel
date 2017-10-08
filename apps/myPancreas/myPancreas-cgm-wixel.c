@@ -21,9 +21,6 @@
 void nicedelayMs(int ms);
 void usb_printf(const char *format, ...);
 void killWithWatchdog();
-void loadSettingsFromFlash();
-
-#define myEOF -1
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -34,23 +31,7 @@ void loadSettingsFromFlash();
 //                                   1 = TRUE       0 = FALSE                                       //
 //                                                                                                  //
 
-#ifndef CUSTOM_TRANSMITTER_ID
 static CODE const char transmitter_id[] = "ABCDE";                                                  //
-
-#define my_webservice_url	"parakeet-receiver.appspot.com/receiver.cgi"
-#define my_webservice_reply     "!ACK"
-#define my_user_agent 		"xDrip"
-#define my_gprs_apn		"apn.check.your.carrier.info"
-
-#define my_udp_server_host	"disabled"
-#define my_udp_server_port	"12345"
-
-#define my_control_number       ""
-
-#else
-// get user specific configuration from an external untracked file
-#include "my_transmitter_id.h"
-#endif
 
 //                                                                                                  //
 static volatile BIT only_listen_for_my_transmitter = 1;	//
@@ -112,28 +93,9 @@ static uint32 XDATA lastfiltered = 0;
 static uint32 XDATA lasttime = 0;
 volatile uint8 sequential_missed_packets = 0;
 
-typedef struct _parakeet_settings
-{
-    uint32 dex_tx_id; 		//4 bytes
-    char http_url[56];
-    char gsm_lock[16];
-    char gsm_apn[32];
-    char udp_server[28];
-    char udp_port[6];
-    int locked:1;
-    int deepsleep:1;
-    int pin:13;
-    uint8 padding3;
-    uint32 checksum; // needs to be aligned
-
-} parakeet_settings;
-
-parakeet_settings XDATA settings;
 int XDATA loop;
 unsigned XDATA char* flash_pointer;
 long unsigned int chk;
-
-#define FLASH_SETTINGS 			(0x7760)
 
 typedef struct _Dexcom_packet
 {
@@ -155,70 +117,6 @@ typedef struct _Dexcom_packet
 XDATA   int gret = 0;
 
 // Library Routine
-
-uint32 checksum()
-{
-    chk = 0x12345678;
-    flash_pointer = (__xdata unsigned char*)settings;
-    for (loop = 0; loop < sizeof(parakeet_settings)-4; loop++)
-    {
-        chk += (flash_pointer[loop] * (loop + 1));
-        chk++;
-    }
-    return chk;
-}
-
-void
-strupr (char XDATA *str,char term)
-{
-
-    while ((*str) && (*str != term))
-    {
-        *str = toupper (*str);
-        ++str;
-    }
-
-}
-
-XDATA char *
-xdatstrchr (char XDATA *string, char ch)
-{
-    while (*string && *string != ch)
-        ++string;
-
-    if (*string == ch)
-        return string;
-
-    return NULL;
-}
-
-XDATA char *
-xdatstrstr (char XDATA *str1, char *str2)
-{
-    XDATA char *cp = str1;
-    XDATA char *s1;
-    char *s2;
-
-
-    if (!*str2)
-        return str1;
-
-    while (*cp)
-    {
-        s1 = cp;
-        s2 = str2;
-
-        while (*s1 && *s2 && !(*s1-*s2))
-            s1++, s2++;
-
-        if (!*s2)
-            return cp;
-
-        ++cp;
-    }
-
-    return NULL;
-}
 
 long
 strtol(char *nptr,char **endptr, int base)
@@ -325,119 +223,6 @@ char *scan_string (char *str, XDATA int base)
 
     return str_ptr;
 }
-
-int sscanf(char *str, char *fmt, ...)
-{
-    va_list ap;
-    char *format_ptr = (char*)fmt;
-    char *str_ptr = (char*)str;
-
-    int8 *p_byte;
-    int *p_int;
-    long *p_long;
-
-    va_start (ap, fmt);
-
-    while ((*format_ptr != 0x0) && (*str_ptr != 0x0))
-    {
-        if (*format_ptr == '%')
-        {
-            format_ptr++;
-
-            if (*format_ptr != 0x0)
-            {
-                switch (*format_ptr)
-                {
-                case 'h':       // expect a byte
-                    p_byte = va_arg( ap, uint8 *);
-                    str_ptr=scan_string(str_ptr, 10);
-                    if (*str_ptr==0x0) goto end_parse;
-                    *p_byte = (uint8)strtol (str_ptr, &str_ptr, 10);
-                    gret ++;
-                    break;
-                case 'd':       // expect an int
-                case 'i':
-                    p_int = va_arg( ap, int *);
-                    str_ptr=scan_string(str_ptr, 10);
-                    if (*str_ptr==0x0) goto end_parse;
-                    *p_int = (int)strtol (str_ptr, &str_ptr, 10);
-                    gret ++;
-                    break;
-                case 'D':
-                case 'I':       // expect a long
-                    p_long = va_arg( ap, long *);
-                    str_ptr=scan_string(str_ptr, 10);
-                    if (*str_ptr==0x0) goto end_parse;
-                    *p_long = strtol (str_ptr, &str_ptr, 10);
-                    gret ++;
-                    break;
-                case 'x':       // expect an int in hexadecimal format
-                    p_int = va_arg( ap, int *);
-                    str_ptr=scan_string(str_ptr, 16);
-                    if (*str_ptr==0x0) goto end_parse;
-                    *p_int = (int)strtol (str_ptr, &str_ptr, 16);
-                    gret ++;
-                    break;
-                case 'X':  // expect a long in hexadecimal format
-                    p_long = va_arg( ap, long *);
-                    str_ptr=scan_string(str_ptr, 16);
-                    if (*str_ptr==0x0) goto end_parse;
-                    *p_long = strtol (str_ptr, &str_ptr, 16);
-                    gret ++;
-                    break;
-                }
-            }
-        }
-
-        format_ptr++;
-    }
-
-end_parse:
-    va_end (ap);
-
-    if (*str_ptr == 0x0) gret = myEOF;
-    return gret;
-}
-void clearSettings()
-{
-    memset (&settings, 0, sizeof (settings));
-    settings.dex_tx_id = asciiToDexcomSrc (transmitter_id);
-    dex_tx_id = settings.dex_tx_id;
-    sprintf(settings.http_url,my_webservice_url);
-    sprintf(settings.gsm_apn,my_gprs_apn);
-    sprintf(settings.udp_server,my_udp_server_host);
-    sprintf(settings.udp_port,my_udp_server_port);
-    sprintf(settings.gsm_lock,my_control_number);
-}
-
-void loadSettingsFromFlash()
-{
-    memcpy(&settings, (uint8 XDATA *)FLASH_SETTINGS, sizeof(settings));
-#ifdef DEBUG
-    usb_printf("AFTER Setting txid: %lu\r\n",settings.dex_tx_id);
-#endif
-
-    checksum();
-#ifdef DEBUG
-    usb_printf("Load Settings: tx: %lu / chk calcuated: %lu vs stored %lu\r\n",settings.dex_tx_id,chk,settings.checksum);
-#endif
-    nicedelayMs(500);
-    if (chk!=settings.checksum)
-    {
-        clearSettings();
-
-        // If custom transmitter_id has been compiled in then we don't wait for initial configuration
-        if (dex_tx_id != 10858926)   // ABCDE
-        {
-            settings.deepsleep=1;
-        }
-    }
-    else
-    {
-        dex_tx_id = settings.dex_tx_id;
-    }
-}
-
 ////////
 
 void sleepInit (void)
@@ -934,8 +719,6 @@ void main()
     usb_connected = usbPowerPresent();
 
     makeAllOutputsLow ();
-    nicedelayMs (1000);
-    loadSettingsFromFlash();
     nicedelayMs(1000);
     radioQueueInit();
     radioQueueAllowCrcErrors = 1;

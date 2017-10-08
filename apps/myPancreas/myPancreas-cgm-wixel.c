@@ -1,80 +1,4 @@
-/** XDRIP GSM Bridge:
-    Project Parakeet
-
-  == Description ==
-  The app uses the radio_queue libray to receive packets.  It does not
-  transmit any packets.
-
-  Received packets are forwarded via a SIM800 GSM modem to a remote udp or web service.
-
-  This allows for reception in to xDrip remotely using GPRS wide area networking
-
-  UDP payload size is only 8 bytes for basic mode or 16 bytes when including geo location.
-
-  Falls back to HTTP mode if UDP fails.
-
-  GSM modem facilities added by jamorham
-
-  based on wixel-xdrip and xbridge2
-
-  Web service url takes cgi get parameters:
-
-  rr = current ms clock of wixel
-  lv = raw value
-  lf = filtered value
-  ts = ms since packet received
-  bp = battery "percent"
-  bm = battery millivolts
-  ct = cpu temperature, eg 287 = 28.7c
-  gl = geo location longitude/latitude
-
-  populate the defines or my_transmitter_id.h file with your local web service
-  gprs apn etc
-
-  responds to text message commands:
-
-  STATUS -> reply with status information
-  BIGSTATUS -> reply with lots of status information
-  REBOOT -> Reboot
-  DEFAULTS -> Clear custom configuration
-  APN -> Set or Query gprs access point name, eg APN my.carrier
-  UDP -> Set UDP server IP or hostname and port, eg UDP 10.123.123.123 21000
-  HTTP -> Set Fallback HTTP url, eg HTTP example.com/receiver.cgi
-  TRANSMIT -> Set transmitter ID, eg TRANSMIT AAAAA (use this command last)
-  LOCK -> Display Lock Status
-  LOCK NOW -> Lock to controlling number - commands will then ONLY be accepted from this number
-  UNLOCK -> Release Lock
-
-  More documentation at https://jamorham.github.io/
-
-
-  == Parameters ==
-radio_channel: See description in radio_link.h.
-*/
-
-
-/* Features */
-// comment out defines below to disable/enable features
-
-#define USE_GEO_LOCATION
-#define GET_BATTERY_STATUS
-#define USE_UDP_UPLINK
-#define USE_HTTP_UPLINK
 #define USE_SMS_CONTROL
-
-#define GSM_USE_DTR_PIN
-
-//#define DEBUG
-
-/* Conditional Code */
-
-#ifdef USE_GEO_LOCATION
-#define UDP_PACKET_SIZE 16
-#define UDP_PACKET_SIZE_STRING "16"
-#else
-#define UDP_PACKET_SIZE 8
-#define UDP_PACKET_SIZE_STRING "8"
-#endif
 
 /** Dependencies **************************************************************/
 #include <cc2511_map.h>
@@ -97,21 +21,10 @@ radio_channel: See description in radio_link.h.
 
 /* Function prototypes ********************************************************/
 
-void nicersleep (int secs);
-void nicedelayMs (int ms);
-int gsm_do_sequence ();
-void gsm_interactive ();
-void gsm_uplink ();
-void usb_printf (const char *format, ...);
-void gsm_wake_serial ();
-int gsm_sleep_mode ();
-int gsm_send_sms();
-void killWithWatchdog ();
+void nicedelayMs(int ms);
+void usb_printf(const char *format, ...);
+void killWithWatchdog();
 void loadSettingsFromFlash();
-
-
-void setADCInputs ();
-
 
 #define myEOF -1
 #define CODE_HTTP_UPLINK 99
@@ -134,9 +47,7 @@ void setADCInputs ();
 //                                                                                                  //
 
 #ifndef CUSTOM_TRANSMITTER_ID
-#warning "Using built-in transmitter id and defines from dexdrip.c"
-
-static CODE const char transmitter_id[] = "ABCDE";                                               //
+static CODE const char transmitter_id[] = "ABCDE";                                                  //
 
 #define my_webservice_url	"parakeet-receiver.appspot.com/receiver.cgi"
 #define my_webservice_reply     "!ACK"
@@ -152,8 +63,6 @@ static CODE const char transmitter_id[] = "ABCDE";                              
 // get user specific configuration from an external untracked file
 #include "my_transmitter_id.h"
 #endif
-
-
 
 //                                                                                                  //
 static volatile BIT only_listen_for_my_transmitter = 1;	//
@@ -195,8 +104,6 @@ static volatile uint8 misses_until_failure = 2;	//
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 
-
-
 static XDATA volatile int start_channel = 0;
 uint32 XDATA asciiToDexcomSrc (char *addr);
 uint32 XDATA getSrcValue (char srcVal);
@@ -215,7 +122,6 @@ static uint8 last_catch_channel = 0;
 BIT needsTimingCalibration = 1;
 BIT usbEnabled = 1;
 BIT writing_flash = 0;
-static volatile BIT send_to_uart = 1;	// when doing usb printf - this is not a setting it is dynamic var
 static uint8 save_IEN0;
 static uint8 save_IEN1;
 static uint8 save_IEN2;
@@ -241,22 +147,6 @@ static char XDATA captureBuffer[250];
 static char XDATA composeBuffer[250];
 static char XDATA stringBuffer[250];
 static char XDATA minus[2]="-";
-
-static const char CODE error_string[] = "ERROR";
-static const char CODE termMessage[] = { 0x1a, 0x0a, 0x00 };
-
-static uint8  XDATA batteryPercent = 0;
-static uint8  XDATA batteryCharging;
-#ifdef GET_BATTERY_STATUS
-static uint16 XDATA batteryMillivolts = 0;
-#endif
-
-#ifdef USE_GEO_LOCATION
-static uint32 XDATA longitudeMinor;
-static uint32 XDATA latitudeMinor;
-static int16  XDATA longitudeMajor;
-static int8   XDATA latitudeMajor;
-#endif
 
 typedef struct _parakeet_settings
 {
@@ -711,16 +601,9 @@ void loadSettingsFromFlash()
     }
 }
 
-
-int16 getCpuDegC()
-{
-    return ((((((int32)adcRead(14|ADC_REFERENCE_INTERNAL)*1250 +1023)/2047)-750)*1000)/243);
-}
-
 ////////
 
-void
-sleepInit (void)
+void sleepInit (void)
 {
     WORIRQ |= (1 << 4);
 }
@@ -732,8 +615,7 @@ ISR (ST, 1)
     SLEEP &= 0xFC;
 }
 
-void
-switchToRCOSC (void)
+void switchToRCOSC (void)
 {
     SLEEP &= ~0x04;
     while (!(SLEEP & 0x20));
@@ -742,24 +624,21 @@ switchToRCOSC (void)
     SLEEP |= 0x04;
 }
 
-void
-uartEnable ()
+void uartEnable ()
 {
     U1UCR &= ~0x40;		//CTS/RTS Off // always off!
     U1CSR |= 0x40;		// Recevier enable
     delayMs (100);
 }
 
-void
-uartDisable ()
+void uartDisable ()
 {
     delayMs (100);
     U1UCR &= ~0x40;		//CTS/RTS Off
     U1CSR &= ~0x40;		// Recevier disable
 }
 
-void
-blink_yellow_led ()
+void blink_yellow_led ()
 {
     if (status_lights)
     {
@@ -767,8 +646,7 @@ blink_yellow_led ()
     }
 }
 
-void
-blink_red_led ()
+void blink_red_led ()
 {
     if (status_lights)
     {
@@ -776,20 +654,17 @@ blink_red_led ()
     }
 }
 
-int8
-getPacketRSSI (Dexcom_packet * p)
+int8 getPacketRSSI(Dexcom_packet * p)
 {
     return (p->RSSI / 2) - 73;
 }
 
-uint8
-getPacketPassedChecksum (Dexcom_packet * p)
+uint8 getPacketPassedChecksum(Dexcom_packet * p)
 {
     return ((p->LQI & 0x80) == 0x80) ? 1 : 0;
 }
 
-uint8
-bit_reverse_byte (uint8 in)
+uint8 bit_reverse_byte (uint8 in)
 {
     uint8 XDATA bRet = 0;
     if (in & 0x01)
@@ -811,16 +686,14 @@ bit_reverse_byte (uint8 in)
     return bRet;
 }
 
-uint8
-min8 (uint8 a, uint8 b)
+uint8 min8 (uint8 a, uint8 b)
 {
     if (a < b)
         return a;
     return b;
 }
 
-void
-bit_reverse_bytes (uint8 * buf, uint8 nLen)
+void bit_reverse_bytes(uint8 * buf, uint8 nLen)
 {
     uint8 DATA i = 0;
     for (; i < nLen; i++)
@@ -829,8 +702,7 @@ bit_reverse_bytes (uint8 * buf, uint8 nLen)
     }
 }
 
-uint32
-dex_num_decoder (uint16 usShortFloat)
+uint32 dex_num_decoder(uint16 usShortFloat)
 {
     uint16 DATA usReversed = usShortFloat;
     uint8 DATA usExponent = 0;
@@ -847,10 +719,7 @@ char XDATA SrcNameTable[32] = { '0', '1', '2', '3', '4', '5', '6', '7',
                                 'Q', 'R', 'S', 'T', 'U', 'W', 'X', 'Y'
                               };
 
-#ifdef USE_SMS_CONTROL
-
-void
-dexcom_src_to_ascii ()
+void dexcom_src_to_ascii()
 {
     dynamic_transmitter_id[0] = SrcNameTable[(dex_tx_id >> 20) & 0x1F];
     dynamic_transmitter_id[1] = SrcNameTable[(dex_tx_id >> 15) & 0x1F];
@@ -860,39 +729,22 @@ dexcom_src_to_ascii ()
     dynamic_transmitter_id[5] = 0;
 }
 
-#endif
-
-void
-doServices ()
+void doServices ()
 {
     if (usb_connected)
-        //if (usbPowerPresent ())
     {
         usbComService ();
         boardService ();
     }
 }
 
-void
-initUart1 ()
+void initUart1 ()
 {
     uart1Init ();
     uart1SetBaudRate (9600);
 }
 
-
-// you can uncomment this if you want a glowing yellow LED when a terminal program is connected
-// to the USB.  I got sick of it.
-// LineStateChangeCallback - sets the yellow LED to the state of DTR on the USB, whenever it changes.
-//void
-//LineStateChangeCallback (uint8 state)
-//{
-//    //LED_YELLOW(state & ACM_CONTROL_LINE_DTR);
-//    usb_connected = state & ACM_CONTROL_LINE_DTR;
-//}
-
-uint32
-asciiToDexcomSrc (char addr[6])
+uint32 asciiToDexcomSrc (char addr[6])
 {
     uint32 XDATA src = 0;
     src |= (getSrcValue (addr[0]) << 20);
@@ -903,8 +755,7 @@ asciiToDexcomSrc (char addr[6])
     return src;
 }
 
-uint32
-getSrcValue (char srcVal)
+uint32 getSrcValue (char srcVal)
 {
     uint8 i = 0;
     for (i = 0; i < 32; i++)
@@ -915,496 +766,23 @@ getSrcValue (char srcVal)
     return i & 0xFF;
 }
 
-
-
-///////// JAMORHAM GPRS / GSM MODEM FEATURE /////////////////
-
-
-typedef struct _Serial_cmd
-{
-    const char *command;
-    const char *response;
-    const int timeout;
-    const int getdata;
-} Serial_cmd;
-
-CODE Serial_cmd *gsm_cmd = full_gsm_cmd;
-
-#ifdef USE_SMS_CONTROL
-static const Serial_cmd CODE sms_cmd[] =
-{
-    {"ATZ", "OK", 10},
-    {"ATE0","OK", 2},
-    {"AT+CSCLK=1", "OK", 2},
-    {"AT+CFUN=1", "OK", 30},
-    {"AT+CMGF=1","OK",2},
-#ifdef GET_BATTERY_STATUS
-    {"AT+CBC","+CBC: ",2,CODE_BATTERY_STATUS},
-#endif
-    {"AT+CMGL=\"REC UNREAD\"","OK",5,CODE_SMS_COMMAND},
-    {"AT+CMGDA=\"DEL READ\"","OK",5},
-    {"AT+CMGDA=\"DEL SENT\"","OK",5},
-// end of sequence marker
-    {"END", "END", 255}
-};
-#endif
-
-
-const Serial_cmd CODE full_gsm_cmd[] =
-{
-    {"ATZ", "OK", 10},
-    {"ATE0","OK", 2},
-    {"AT+CFUN=0", "", 10},
-    {"AT+CSCLK=1", "OK", 2},
-    {"AT+CFUN=1", "Call Ready", 30},
-
-#ifdef GET_BATTERY_STATUS
-    {"AT+CBC","+CBC: ",2,CODE_BATTERY_STATUS},
-#endif
-
-    {"AT+SAPBR=0,1", "", 3},
-    {"AT+SAPBR=3,1,\"Contype\",\"GPRS\"", "OK", 2},
-    {"AT+SAPBR=3,1,\"APN\",\"%s\"", "OK", 2,CODE_APN_POPULATE},
-    {"AT+SAPBR=1,1", "OK", 30},
-
-#ifdef USE_GEO_LOCATION
-    {"AT+CIPGSMLOC=1,1","+CIPGSMLOC: ",15,CODE_GEO_LOCATION},
-#endif
-
-#ifdef USE_SMS_CONTROL
-    {"AT+CMGF=1","OK",2},
-    {"AT+CMGL=\"REC UNREAD\"","OK",5,CODE_SMS_COMMAND},
-    {"AT+CMGDA=\"DEL READ\"","OK",5},
-    {"AT+CMGDA=\"DEL SENT\"","OK",5},
-#endif
-
-#ifdef USE_UDP_UPLINK
-    {"UDP_CHECK","",11,CODE_UDP_CHECK},
-    {"AT+CIPSHUT","SHUT OK",5},
-    {"AT+CGATT?","CGATT: 1",2},
-    {"AT+CIPCSGP=1,\"%s\"","OK",2,CODE_APN_POPULATE},
-    {"AT+CSTT=\"%s\"","OK",2,CODE_APN_POPULATE},
-    {"AT+CIICR","OK",10},
-    {"AT+CIPSTATUS","IP GPRSACT",4},
-    {"AT+CIFSR",".",10},
-    {"AT+CIPSTART=\"UDP\",\"%s\"","OK",10,CODE_UDP_POPULATE},
-    {"AT+CIPSEND=" UDP_PACKET_SIZE_STRING,">",5},
-    {"UDP","~",10,CODE_UDP_UPLINK},
-    {"AT+CIPSHUT","SHUT OK",5},
-
-#endif
-
-#ifdef USE_HTTP_UPLINK
-    {"AT+HTTPTERM", "", 2},
-    {"AT+HTTPINIT", "", 10},
-    {"AT+HTTPPARA=\"CID\",1", "OK", 2},
-    {
-        "AT+HTTPPARA=\"URL\",\"%s%s\"", "OK",
-        2,CODE_HTTP_UPLINK
-    },
-    {"AT+HTTPPARA=\"UA\",\"" my_user_agent "\"", "OK", 2},
-    {"AT+HTTPACTION=0", "+HTTPACTION: 0,200,", 60},
-    {"AT+HTTPREAD", my_webservice_reply , 2, CODE_WEB_REPLY},
-    {"AT+HTTPTERM", "OK", 2},
-#endif
-
-// end of sequence marker
-    {"END", "END", 255}
-};
-
-
-#ifdef USE_SMS_CONTROL
-void sendStatus()
-{
-    dexcom_src_to_ascii ();
-    sprintf(messageBuffer,"STAT: id:%s batt:%d raw:%lu filt:%lu https://maps.google.com/?q=%s",dynamic_transmitter_id,batteryPercent,lastraw,lastfiltered,lastLocation);
-    gsm_send_sms();
-}
-
-int matchCommand(const char* command)
-{
-    int len = strlen(command);
-    if (strncmp(command,sfind,len)==0)
-    {
-        usb_printf("Matched COMMAND: %s\r\n",command);
-        return 1;
-    }
-    else
-    {
-        return 0;
-    }
-}
-
-void sendAPN()
-{
-    sprintf(messageBuffer,"APN: '%s'",settings.gsm_apn);
-    gsm_send_sms();
-}
-void sendLock()
-{
-    sprintf(messageBuffer,"Locked to number: '%s'",settings.gsm_lock);
-    gsm_send_sms();
-}
-void sendUDP()
-{
-    sprintf(messageBuffer,"UDP: '%s:%s'",settings.udp_server,settings.udp_port);
-    gsm_send_sms();
-}
-void sendHTTP()
-{
-    sprintf(messageBuffer,"HTTP: '%s'",settings.http_url);
-    gsm_send_sms();
-}
-
-#endif
-
-
-int
-gsm_get_response (const char *response, int timeout, int getdata)
-{
-    BIT looking_for_ok = 0;
-    char b = 0;
-    int rolling_ptr = 0;
-    static int error_ptr = 0;
-    int len = strlen (response);
-    uint32 timeout_time = getMs () + ((uint32) timeout * 1000);
-    loop = 0; // move ptr to global
-    if ((got_an_error == 0) && (strcmp("OK",response)==0))
-    {
-        looking_for_ok = 1;
-    }
-    while ((loop < len) && (getMs () < timeout_time))
-    {
-        if (uart1RxAvailable ())
-        {
-            b = uart1RxReceiveByte ();
-            if (usb_connected)
-                usbComTxSendByte (b);
-            if (getdata == CODE_SMS_COMMAND)
-            {
-                captureBuffer[rolling_ptr]=b;
-                rolling_ptr++;
-                if (rolling_ptr>(sizeof(captureBuffer)-2))
-                {
-                    rolling_ptr--;
-                }
-            }
-            if (response[loop] == b)
-            {
-                loop++;
-            }
-            else
-            {
-                loop = 0;
-            }
-            if (looking_for_ok)
-            {
-                if (error_string[error_ptr] == b)
-                {
-                    error_ptr++;
-                }
-                else
-                {
-                    error_ptr=0;
-                }
-                if (error_ptr == (sizeof(error_string)-1))
-                {
-#ifdef DEBUG
-                    usb_printf("Matched ERROR string\r\n");
-#endif
-                    got_an_error = 1;
-                    timeout_time = 0;
-                }
-            }
-        }
-        else
-        {
-            doServices ();
-            delayMicroseconds (100);
-        }
-
-    }
-
-    if ((len > 0) && (loop < len))
-    {
-        usb_printf ("Timedout on %s\r\n", response);
-        return 0;
-    }
-    else
-    {
-#ifdef DEBUG
-        usb_printf (" <-- Matched %s\r\n", response);
-#endif
-        got_an_error = 0; // clear flag on success
-#ifdef USE_SMS_CONTROL
-        if (getdata == CODE_SMS_COMMAND)
-        {
-            captureBuffer[rolling_ptr]='\0';
-#ifdef DEBUG
-            usb_printf ("MULTI LINE capture :%s:\r\n", captureBuffer);
-#endif
-            sfind = xdatstrstr(captureBuffer,"\",\"");
-            if (sfind !=NULL)
-            {
-                sfind=sfind+3;
-                cfind =  xdatstrchr(sfind, '"');
-                if (cfind !=NULL)
-                {
-                    *cfind = '\0';
-
-                    usb_printf ("Isolated phone number :%s:\r\n", sfind);
-                    nfind = sfind;
-                    sfind = xdatstrchr(++cfind,'\n');
-                    if (sfind != NULL)
-                    {
-                        cfind = xdatstrchr(++sfind,'\r');
-                        *cfind = '\0';
-                        usb_printf ("Isolated Text Message :%s:\r\n", sfind);
-
-                        if ((settings.gsm_lock[0]=='\0') || (strncmp(settings.gsm_lock,nfind,sizeof(settings.gsm_lock))==0))
-                        {
-
-                            strupr(sfind,' ');
-                            if (matchCommand("BIGSTATUS"))
-                            {
-                                sendStatus();
-                                sendAPN();
-                                sendLock();
-                                sendUDP();
-                                sendHTTP();
-                            }
-                            else if (matchCommand("STATUS"))
-                            {
-                                sendStatus();
-                            }
-                            else if (matchCommand("TRANSMIT"))
-                            {
-                                if (strlen(sfind)==14)
-                                {
-                                    strupr(sfind,'\0');
-                                    dex_tx_id = asciiToDexcomSrc (sfind+9);
-                                    settings.dex_tx_id = dex_tx_id;
-                                    settings.deepsleep = 1;
-                                    saveSettingsToFlash();
-                                    sendStatus();
-                                }
-                                else
-                                {
-                                    sprintf(messageBuffer,"%s","Invalid Transmit command length");
-                                    gsm_send_sms();
-                                }
-
-                            }
-                            else if (matchCommand("REBOOT"))
-                            {
-                                killWithWatchdog();
-                            }
-                            else if (matchCommand("DEFAULTS"))
-                            {
-                                clearSettings();
-                                saveSettingsToFlash();
-                                killWithWatchdog();
-                            }
-                            else if (matchCommand("APN"))
-                            {
-                                if (strlen(sfind)>4)
-                                {
-                                    memcpy(&settings.gsm_apn, sfind+4, (sizeof(settings.gsm_apn)-1));
-                                    saveSettingsToFlash();
-                                }
-                                sendAPN();
-                            }
-                            else if (matchCommand("LOCK"))
-                            {
-                                if (strlen(sfind)>5)
-                                {
-                                    memcpy(&settings.gsm_lock,nfind,(sizeof(settings.gsm_lock)-1));
-                                    saveSettingsToFlash();
-                                }
-                                sendLock();
-                            }
-                            else if (matchCommand("UNLOCK"))
-                            {
-                                settings.gsm_lock[0]='\0';
-                                saveSettingsToFlash();
-                                sendLock();
-                            }
-                            else if (matchCommand("UDP"))
-                            {
-                                if (strlen(sfind)>11)
-                                {
-                                    sfind=sfind+4;
-                                    cfind = xdatstrchr(sfind,' ');
-                                    *cfind='\0';
-                                    memcpy(&settings.udp_server,sfind,(sizeof(settings.udp_server)-1));
-                                    memcpy(&settings.udp_port,++cfind,(sizeof(settings.udp_port)-1));
-                                    saveSettingsToFlash();
-                                }
-                                sendUDP();
-                            }
-                            else if (matchCommand("HTTP"))
-                            {
-                                if (strlen(sfind)>11)
-                                {
-                                    memcpy(&settings.http_url,sfind+5,(sizeof(settings.http_url)-1));
-                                    saveSettingsToFlash();
-                                }
-                                sendHTTP();
-                            }
-
-                        }
-                        else
-                        {
-                            usb_printf("Not responding to wrong number when locked\r\n");
-                        }
-
-                    }
-                }
-
-            }
-            return 1;
-        }
-#endif
-
-read_line_of_data:
-        // read in any extra data
-        if (getdata>0)
-        {
-#ifdef DEBUG
-            usb_printf ("Getting data reply\r\n");
-#endif
-            loop=0;
-            while ((b != '\r') && (getMs () < timeout_time) && (loop<sizeof(captureBuffer)))
-            {
-                if (uart1RxAvailable ())
-                {
-                    b = uart1RxReceiveByte ();
-                    if (usb_connected)
-                        usbComTxSendByte (b);
-                    if (b != '\r')
-                    {
-                        captureBuffer[loop]=b;
-                        loop++;
-                    }
-                    else
-                    {
-                        captureBuffer[loop]='\0';
-#ifdef DEBUG
-                        usb_printf ("Got data reply %s\r\n",captureBuffer);
-#endif
-
-                        switch (getdata)
-                        {
-
-
-#ifdef GET_BATTERY_STATUS
-                        case CODE_BATTERY_STATUS:
-                            sscanf(captureBuffer,"%h,%h,%d",&batteryCharging,&batteryPercent,&batteryMillivolts);
-#ifdef DEBUG
-                            usb_printf("Battery read result: %hhu / %hhu / %d\r\n",batteryCharging,batteryPercent,batteryMillivolts);
-#endif
-                            captureBuffer[0]='\0';
-                            break;
-#endif
-
-
-#ifdef USE_GEO_LOCATION
-                        case CODE_GEO_LOCATION:
-                            if (strlen(captureBuffer)>12)
-                            {
-                                sscanf(&captureBuffer[2],"%d.%D,%h.%D,",&longitudeMajor,&longitudeMinor,&latitudeMajor,&latitudeMinor);
-                                if ((longitudeMajor==0)&&(captureBuffer[2]=='-'))
-                                {
-                                    minus[0]='-';
-                                }
-                                else
-                                {
-                                    minus[0]='\0';
-                                }
-                                sprintf(lastLocation,"%hhd.%ld,%s%d.%ld",latitudeMajor,latitudeMinor,minus,longitudeMajor,longitudeMinor);
-                                if ((longitudeMajor==0)&&(captureBuffer[2]=='-')) longitudeMajor=255;
-#ifdef DEBUG
-                                usb_printf("Geo Location read result: %d %ld / %hhd %ld\r\n",longitudeMajor,longitudeMinor,latitudeMajor,latitudeMinor);
-                                usb_printf("Last Location set to: %s\r\n",lastLocation);
-#endif
-                            }
-                            else
-                            {
-                                usb_printf("Could not get GEO Location: %s\r\n",captureBuffer);
-                            }
-                            break;
-#endif
-
-                        case CODE_WEB_REPLY:
-                        {
-                            if (strlen(captureBuffer)>3)
-                            {
-#ifdef DEBUG
-                                usb_printf("WEB REPLY BUFFER: %c %s\r\n",captureBuffer[2],captureBuffer[3],captureBuffer);
-#endif
-                                if (captureBuffer[3]=='!')
-                                {
-                                    switch (captureBuffer[2])
-                                    {
-                                    case '2':
-#ifdef DEBUG
-                                        usb_printf("Stay awake command received\r\n");
-#endif
-                                        settings.deepsleep = 0;
-                                        break;
-                                    }
-                                }
-                            }
-                            break;
-                        }
-
-
-                        }
-
-                        return 1;
-                    }
-                }
-            }
-            if (getdata>1)
-            {
-                // if strict
-                return 0;
-            }
-            else
-            {
-                return 1;
-            }
-        }
-        else
-        {
-            return 1;
-        }
-    }				// did we get a match
-}				// function end
-
-void
-usb_printf (const char *format, ...)
+void usb_printf (const char *format, ...)
 {
     va_list argx;
     if (usb_connected)
     {
-        send_to_uart = 0;
         va_start (argx, format);
         vprintf (format, argx);
-        send_to_uart = 1;
     }
 }
 
-void
-print_packet (Dexcom_packet * pPkt)
+void print_packet(Dexcom_packet * pPkt)
 {
-
-    uint32 mlasttime;
     lasttime = getMs ();
     lastraw = dex_num_decoder (pPkt->raw);
     lastfiltered = dex_num_decoder (pPkt->filtered) * 2;
 
-    uartEnable ();
+    uartEnable();
 
     if ((allow_alternate_usb_protocol == 0) || !usbPowerPresent ())
     {
@@ -1413,11 +791,9 @@ print_packet (Dexcom_packet * pPkt)
         if (!use_gsm)
             printf ("%lu %hhu %d", dex_num_decoder (pPkt->raw), pPkt->battery,
                     adcConvertToMillivolts (adcRead (0)));
-
     }
     else
     {
-
         // Protocol suitable for dexterity android application or python script when running in USB mode
         usb_printf ("%lu %lu %lu %hhu %d %hhu %d \r\n", pPkt->src_addr,
                     dex_num_decoder (pPkt->raw),
@@ -1425,163 +801,11 @@ print_packet (Dexcom_packet * pPkt)
                     getPacketRSSI (pPkt), pPkt->txId,
                     adcConvertToMillivolts (adcRead (0)));
     }
-
-    gsm_delay = getMs ();
-    if (use_gsm)
-    {
-        last_dex_battery = pPkt->battery;
-        gsm_uplink ();		// send data via gsm / gprs
-
-        gsm_delay = (getMs () - gsm_delay) / 1000;
-
-#ifdef USE_SMS_CONTROL
-        if (!settings.deepsleep)
-        {
-            mlasttime = getMs();
-            while ((!settings.deepsleep) && (getMs()-mlasttime)<600000)
-            {
-                gsm_cmd = sms_cmd;
-                gsm_do_sequence();
-                nicedelayMs(3000);
-            }
-            gsm_cmd = full_gsm_cmd;
-            settings.deepsleep = 1;
-            gsm_sleep_mode();
-        }
-#endif
-    }
-
-
-    uartDisable ();
-
-
-
-}
-
-int
-gsm_send_command_getdata (const char *command, const char *response, int timeout, XDATA int getdata)
-{
-
-    int i;
-    char b;
-    char XDATA buffer[256];
-    char XDATA parambuf[256] = "";
-    char* XDATA param = parambuf;
-
-    stringBuffer[0]=0; // clean up
-
-#ifdef USE_HTTP_UPLINK
-
-    if (getdata==CODE_HTTP_UPLINK)
-    {
-        // HTTP SEND
-
-#ifdef GET_BATTERY_STATUS
-        sprintf (param,"%s?rr=%lu&zi=%lu&pc=%s&lv=%lu&lf=%lu&db=%hhu",settings.http_url, getMs (), dex_tx_id, settings.udp_port, lastraw, lastfiltered,last_dex_battery);
-        sprintf (stringBuffer, "&ts=%lu&bp=%d&bm=%d&ct=%d&gl=%s", (getMs () - lasttime), batteryPercent, batteryMillivolts, getCpuDegC(), lastLocation);
-#else
-        sprintf (param, "%s?rr=%lu&zi=%lu&pc=%s&lv=%lu", settings.http_url,getMs (), dex_tx_id, settings.udp_port lastraw,
-                 sprintf (stringBuffer,"&lf=%lu&ts=%lu&ct=%d&gl=%s",
-                          lastfiltered, (getMs () - lasttime), getCpuDegC(),lastLocation);
-#endif
-        getdata=0;
-    }
-#endif
-
-
-// read in any buffered data before we send the command
-
-    while (uart1RxAvailable ())
-    {
-        b = uart1RxReceiveByte ();
-        if (usb_connected)
-            usbComTxSendByte (b);
-    }
-
-#ifdef USE_UDP_UPLINK
-    if (getdata==CODE_UDP_UPLINK)
-    {
-
-        buffer[0]=(char)((lastraw >> 16) & 0xff);
-        buffer[1]=(char)((lastraw >> 8) & 0xff);
-        buffer[2]=(char)(lastraw & 0xff);
-
-        buffer[3]=(char)((lastfiltered >> 16) & 0xff);
-        buffer[4]=(char)((lastfiltered >> 8) & 0xff);
-        buffer[5]=(char)(lastfiltered & 0xff);
-
-        buffer[6]=(char)(batteryPercent);
-        buffer[7]=(char)((getMs()-lasttime)/1000);
-
-#ifdef USE_GEO_LOCATION
-        buffer[8]=(char)latitudeMajor;
-        buffer[9]=(char)((latitudeMinor >> 16) & 0xff);
-        buffer[10]=(char)((latitudeMinor >> 8) & 0xff);
-        buffer[11]=(char)((latitudeMinor) & 0xff);
-        buffer[12]=(char)(longitudeMajor >>1) & 0xff;
-        buffer[13]=(char)(((longitudeMinor >> 16) & 0xff) | ((longitudeMajor << 7) & 0x80));
-        buffer[14]=(char)((longitudeMinor >> 8) & 0xff);
-        buffer[15]=(char)((longitudeMinor) & 0xff);
-#endif
-
-
-        for (i=0; i<UDP_PACKET_SIZE; i++)
-        {
-            uart1TxSendByte (buffer[i]);
-        }
-        getdata=0;
-        goto gsm_send_command_return;
-    }
-#endif
-
-    if (getdata==CODE_APN_POPULATE)
-    {
-        param=settings.gsm_apn;
-        getdata=0;
-    }
-    else if (getdata==CODE_UDP_POPULATE)
-    {
-        sprintf (param, "%s\",\"%s", settings.udp_server,settings.udp_port);
-        getdata=0;
-    }
-    sprintf (buffer, command, param, stringBuffer);	// fill in string
-
-    usb_printf ("GSM send command: %s / %s / %d\r\n", buffer, response,
-                timeout);
-
-    printf (buffer);
-    printf ("\r\n");		// enter key
-
-gsm_send_command_return:
-    return gsm_get_response (response, timeout, getdata);
-}
-
-int
-gsm_send_command (const char *command, const char *response, int timeout)
-{
-    return gsm_send_command_getdata(command,response,timeout,0);
-}
-
-int
-gsm_send_sms()
-{
-    sprintf(composeBuffer,"AT+CMGS=\"%s\"" ,nfind);
-    if (gsm_send_command_getdata(composeBuffer,">",3,0))
-    {
-        gsm_send_command(messageBuffer,"",2);
-        return gsm_send_command_getdata(termMessage,"+CGMS:",10,0);
-    }
-    else
-    {
-        return 0;
-    }
+    uartDisable();
 }
 
 /////////////////////////////
-
-
-void
-makeAllOutputsLow ()
+void makeAllOutputsLow ()
 __reentrant
 {
     int i;
@@ -1596,8 +820,7 @@ __reentrant
     }
 }
 
-void
-reset_offsets ()
+void reset_offsets ()
 {
     int i;
     for (i = 0; i < 4; i++)
@@ -1606,26 +829,15 @@ reset_offsets ()
     }
 }
 
-void
-killWithWatchdog ()
+void killWithWatchdog ()
 {
     WDCTL = (WDCTL & ~0x03) | 0x00;
     WDCTL = (WDCTL & ~0x04) | 0x08;
 }
 
-void
-goToSleep (int32 seconds)
+void goToSleep (int32 seconds)
 __reentrant
 {
-
-    if (use_gsm)
-    {
-        LED_YELLOW(0); // shut off any indicator led
-        seconds = seconds - gsm_delay;
-        usb_printf ("Sleep Delay adjusted for gsm by %ld\r\n", gsm_delay);
-        gsm_delay = 0;
-    }
-
     if (seconds < 1)
         return;
 
@@ -1747,12 +959,9 @@ __reentrant
     makeAllOutputsLow ();
 }
 
-
-void
-putchar (char c)
+void putchar (char c)
 {
-    if (send_to_uart)
-        uart1TxSendByte (c);
+    uart1TxSendByte (c);
     if (usbPowerPresent ())
     {
         while (usbComTxAvailable()<100)
@@ -1763,8 +972,7 @@ putchar (char c)
     }
 }
 
-void
-swap_channel (uint8 channel, uint8 newFSCTRL0)
+void swap_channel(uint8 channel, uint8 newFSCTRL0)
 {
     do
     {
@@ -1777,8 +985,7 @@ swap_channel (uint8 channel, uint8 newFSCTRL0)
     RFST = 2;			//RX
 }
 
-void
-strobe_radio (int radio_chan)
+void strobe_radio(int radio_chan)
 {
     radioMacInit ();
     MCSM1 = 0;
@@ -1786,8 +993,7 @@ strobe_radio (int radio_chan)
     swap_channel (nChannels[radio_chan], fOffset[radio_chan]);
 }
 
-int
-WaitForPacket (uint16 milliseconds, Dexcom_packet * pkt, uint8 channel)
+int WaitForPacket(uint16 milliseconds, Dexcom_packet * pkt, uint8 channel)
 __reentrant
 {
     uint32 start = getMs ();
@@ -1844,8 +1050,7 @@ __reentrant
     return nRet;
 }
 
-uint32
-delayFor (int wait_chan)
+uint32 delayFor(int wait_chan)
 {
     if (needsTimingCalibration)
     {
@@ -1862,25 +1067,22 @@ delayFor (int wait_chan)
     }
 }
 
-BIT
-get_packet (Dexcom_packet * pPkt)
+BIT get_packet(Dexcom_packet * pPkt)
 {
     int nChannel = 0;
     for (nChannel = start_channel; nChannel < NUM_CHANNELS; nChannel++)
     {
-        switch (WaitForPacket (delayFor (nChannel), pPkt, nChannel))
+        switch (WaitForPacket(delayFor(nChannel), pPkt, nChannel))
         {
-        case 1:
-            needsTimingCalibration = 0;
-            sequential_missed_packets = 0;
-            return 1;
-        case 0:
-            continue;
+			case 1:
+				needsTimingCalibration = 0;
+				sequential_missed_packets = 0;
+				return 1;
+			case 0:
+				continue;
         }
     }
     needsTimingCalibration = 1;
-//    killWithWatchdog();
-//   delayMs(2000);
     sequential_missed_packets++;
     if (sequential_missed_packets > misses_until_failure)
     {
@@ -1892,331 +1094,7 @@ get_packet (Dexcom_packet * pPkt)
     return 0;
 }
 
-
-void flashingError(int XDATA howlong,int XDATA flashspeed)
-{
-
-#ifdef DEBUG
-    usb_printf("Doing error light sequence\r\n");
-#endif
-
-    general_timer=getMs()+howlong;
-    while (getMs()<general_timer)
-    {
-        LED_RED (!(((getMs () / flashspeed)) % 2) & 1);
-        LED_YELLOW ((((getMs () / flashspeed)) % 2) & 1);
-        doServices();
-    }
-    LED_RED(0); // lights off after error
-    LED_YELLOW(0);
-
-    wake_error_count++;
-    if (wake_error_count > 2)
-    {
-        killWithWatchdog ();
-    }
-}
-
-void
-configBt ()
-{
-    uartEnable ();
-    if (use_gsm)
-    {
-        if  (!gsm_sleep_mode ())
-        {
-            // problem with init of gsm module
-            flashingError(20000,400);
-        }
-
-#ifdef DEBUG
-        gsm_interactive(); // for debug
-#endif
-
-#ifdef USE_SMS_CONTROL
-        if (!settings.deepsleep)
-        {
-            gsm_wake_serial();
-            while (!settings.deepsleep)
-            {
-#ifdef DEBUG
-                usb_printf("Checksums: calc %lu / stored = %lu / txid: %lu / USB: %hhu\r\n",chk,settings.checksum,dex_tx_id,usbDeviceState);
-                nicedelayMs(300);
-#endif
-                gsm_cmd = sms_cmd;
-                gsm_do_sequence();
-                nicedelayMs(3000);
-            }
-        }
-#endif
-
-        gsm_cmd = full_gsm_cmd;
-
-    }
-    else
-    {
-        printf ("AT+NAMExDrip");
-    }
-
-    uartDisable ();
-}
-
-int
-gsm_sleep_mode ()
-{
-    int XDATA result = 1;
-    gsm_wake_serial ();
-    if (settings.deepsleep)
-    {
-        usb_printf ("Sleeping GSM\r\n");
-#ifdef GSM_USE_DTR_PIN
-        gsm_send_command ("AT+CSCLK=1", "OK", 2);
-#else
-        gsm_send_command ("ATZ", "OK", 2);
-#endif
-        if (!gsm_send_command ("AT+CFUN=0", "OK", 10)) result = 0; // pass error
-        delayMs (2000);
-#ifdef GSM_USE_DTR_PIN
-        setDigitalOutput (13, HIGH);	// P1_3 set high to sleep
-#endif
-    }
-    else
-    {
-        usb_printf("Not DeepSleeping - config unset\r\n");
-    }
-    return result;
-}
-
-void
-gsm_wake_serial ()
-__reentrant
-{
-    int i;
-    usb_printf ("Waking GSM\r\n");
-#ifdef GSM_USE_DTR_PIN
-    setDigitalOutput (13, LOW);	// P1_3 set low to wake
-#endif
-    for (i = 0; i < 10; i++)
-    {
-        uart1TxSendByte (' ');
-    }
-    delayMs (200);
-
-    if (!gsm_send_command ("AT", "OK", 1))
-    {
-        delayMs (200);
-        if (!gsm_send_command ("AT", "OK", 1))
-        {
-            uart1TxSendByte (27); // ESC
-            delayMs (300);
-            if (!gsm_send_command ("AT", "OK", 2))
-            {
-                flashingError(20000,200); // double speed flash means could not wake
-            }
-            else
-            {
-                wake_error_count = 0;
-            }
-        }
-        else
-        {
-            wake_error_count = 0;
-        }
-    }
-    else { wake_error_count = 0; }
-}
-
-void
-gsm_uplink ()
-{
-    int i = 0;
-    int result;
-    while ((i < 5) && (i > -1))
-    {
-        usb_printf ("Attempting to uplink data: try: %d\r\n", i);
-        result = gsm_do_sequence ();
-        i++;
-        if (result)
-        {
-            i = -10;
-        }
-        else
-        {
-            delayMs (3000);
-        }
-    }
-    if (i == -10)
-    {
-        usb_printf ("UPLINK SUCCESS!\r\n");
-    }
-    else
-    {
-        usb_printf ("UPLINK FAILED!\r\n");
-
-    }
-}
-
-#ifdef DEBUG
-
-void
-gsm_interactive ()
-__reentrant
-{
-    usb_printf ("Entering interactive mode\r\n");
-    gsm_wake_serial();
-    while (1)
-    {
-
-        char b;
-
-
-        while (uart1RxAvailable ())
-        {
-            b = uart1RxReceiveByte ();
-            if (usb_connected)
-                usbComTxSendByte (b);	// send as debug output
-        }
-        while (usbComRxAvailable ())
-        {
-            b = usbComRxReceiveByte ();
-            if (b == '¬')
-                gsm_do_sequence ();
-            if (b == '`')
-            {
-                usb_printf ("exit interactive\r\n");
-                return;
-            }
-            uart1TxSendByte (b);
-        }
-
-        doServices ();
-        delayMs (10);
-    }				// main while
-
-}
-#endif
-
-int
-gsm_do_sequence ()
-{
-    int i = 0;
-    int result = 1;
-    BIT terminate_on_next = 0;
-
-    LED_GREEN (1);
-    LED_RED (0);
-
-    captureBuffer[0]='\0';
-    doing_retry = 0;
-
-    usb_printf ("Doing GSM sequence\r\n");
-    gsm_wake_serial ();
-    while (result)
-    {
-
-#ifdef USE_UDP_UPLINK
-        // Skip UDP protocol if udp server starts with "disable"
-        if (gsm_cmd[i].getdata == CODE_UDP_CHECK)
-        {
-            usb_printf("Skipping UDP");
-            if (strncmp("disable",settings.udp_server,7)==0)
-            {
-                i=i+gsm_cmd[i].timeout;
-            }
-            else
-            {
-                i++;
-            }
-        }
-#endif
-
-        if (gsm_cmd[i].timeout == 255)
-            break;			// exit loop when on last cmd
-
-
-        LED_RED (1);
-        result =
-            gsm_send_command_getdata (gsm_cmd[i].command, gsm_cmd[i].response,
-                                      gsm_cmd[i].timeout, gsm_cmd[i].getdata);
-        LED_RED (0);
-
-        if (result)
-        {
-            delayMs (50);
-            if (terminate_on_next) break;
-        }
-
-        if (gsm_cmd[i].getdata == CODE_UDP_UPLINK)
-        {
-            if (result)
-            {
-                terminate_on_next=1; // exit after shut
-            }
-            else
-            {
-                result=1; // keep going on failure for code 97
-            }
-        }
-        // delayMs (250);
-        i++;
-        // handle auto-retry
-        if ((got_an_error)&&(doing_retry==0))
-        {
-#ifdef DEBUG
-            usb_printf("RETRYING LAST COMMAND\r\n");
-#endif
-            nicedelayMs(5000);
-            got_an_error = 0;
-            doing_retry = 1;
-            result=1; // force retry
-            i--;
-        }
-        else
-        {
-            doing_retry = 0;
-        }
-    }
-    if (result)
-    {
-        usb_printf ("GSM Sequence SUCCESS\r\n");
-        LED_RED (0);
-        LED_GREEN (0);
-        LED_YELLOW (1);
-        gsm_sleep_mode ();
-    }
-    else
-    {
-        usb_printf ("GSM Sequence FAILURE\r\n");
-        gsm_send_command ("AT&F", "OK", 2);
-        gsm_sleep_mode ();
-        LED_RED (1);
-        LED_GREEN (0);
-    }
-    return result;
-}
-
-#ifdef DEBUG
-void
-nicersleep (int secs)
-__reentrant
-{
-    int i = 0;
-    int j = 0;
-    while (i < secs)
-    {
-        doServices ();
-        for (j = 0; j < 10; j++)
-        {
-            delayMs (100);
-            blink_red_led ();
-        }
-        i++;
-    }
-    LED_RED (0);
-}
-#endif
-void
-nicedelayMs (int ms)
+void nicedelayMs (int ms)
 __reentrant
 {
     uint32 timeend = getMs() + ms;
@@ -2226,65 +1104,37 @@ __reentrant
     }
 }
 
-void
-main ()
+void main()
 {
-
-    systemInit ();
+    systemInit();
     LED_YELLOW(1);		// YELLOW LED STARTS DURING POWER ON
     initUart1 ();
     P1DIR |= 0x08;		// RTS
-
-
-
-    sleepInit ();
-
-    lastLocation[0]='\0';
-
+    sleepInit();
     nicedelayMs (3000);		// extra sleep for grumpy sim800 units
-
     LED_GREEN (1);		// Green shows when connected usb
-    //usbComRequestLineStateChangeNotification(LineStateChangeCallback);
 
-#ifdef DEBUG
-    usb_connected = 1;
-#else
-    usb_connected = usbPowerPresent ();
-#endif
-
+    usb_connected = usbPowerPresent();
 
     makeAllOutputsLow ();
-
     nicedelayMs (1000);
-
     loadSettingsFromFlash();
-
-    nicedelayMs (1000);
-
-    radioQueueInit ();
+    nicedelayMs(1000);
+    radioQueueInit();
     radioQueueAllowCrcErrors = 1;
+
     MCSM1 = 0;
-
-
-    // from xbridge3.c jstevensonsog
-
-    MCSM0 &= 0x34;		// calibrate every fourth transition to and from IDLE.
+    MCSM0 &= 0x34;			// calibrate every fourth transition to and from IDLE.
     MCSM1 = 0x00;			// after RX go to idle, we don't transmit
-    //MCSM2 = 0x08;
     MCSM2 = 0x17;			// terminate receiving on drop of carrier, but keep it up when packet quality is good.
-
-
-    configBt ();
 
     while (1)
     {
         Dexcom_packet Pkt;
         memset (&Pkt, 0, sizeof (Dexcom_packet));
-        //   boardService();
-
-        if (get_packet (&Pkt))
+        if (get_packet(&Pkt))
         {
-            print_packet (&Pkt);
+            print_packet(&Pkt);
         }
 
         RFST = 4;			// SIDLE = 4
@@ -2318,4 +1168,3 @@ main ()
         radioMacStrobe ();
     }
 }
-

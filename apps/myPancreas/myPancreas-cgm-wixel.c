@@ -1,6 +1,3 @@
-#define USE_SMS_CONTROL
-
-/** Dependencies **************************************************************/
 #include <cc2511_map.h>
 #include <board.h>
 #include <random.h>

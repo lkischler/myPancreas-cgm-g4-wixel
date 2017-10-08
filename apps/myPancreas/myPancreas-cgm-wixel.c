@@ -24,15 +24,6 @@ void killWithWatchdog();
 void loadSettingsFromFlash();
 
 #define myEOF -1
-#define CODE_HTTP_UPLINK 99
-#define CODE_BATTERY_STATUS 98
-#define CODE_UDP_UPLINK 97
-#define CODE_GEO_LOCATION 96
-#define CODE_SMS_COMMAND 94
-#define CODE_APN_POPULATE 93
-#define CODE_UDP_POPULATE 92
-#define CODE_UDP_CHECK 91
-#define CODE_WEB_REPLY 90
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -64,16 +55,9 @@ static CODE const char transmitter_id[] = "ABCDE";                              
 //                                                                                                  //
 static volatile BIT only_listen_for_my_transmitter = 1;	//
 // 1 is recommended                                                                                 //
-//                                                                                                  //
-static volatile BIT status_lights = 1;	//
-// if status_lights = 1; the yellow light flashes while actively scanning                           //
-// if a light is flashing for more than 10 minutes straight, it may not be picking up your dex      //
-//                                                                                                  //
+//	                                                                                                //
 static volatile BIT allow_alternate_usb_protocol = 1;
 // if set to 1 and plugged in to USB then protocol output is suitable for dexterity and similar
-
-// set use_gsm to 0 if you want to use parakeet codebase as USB/Wifi Wixel
-static volatile BIT use_gsm = 1;
 //                                                                                                  //
 //..................................................................................................//
 //////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -112,38 +96,21 @@ static uint8 nChannels[NUM_CHANNELS] = { 0, 100, 199, 209 };
 static XDATA uint32 waitTimes[NUM_CHANNELS] = { 13500, 500, 500, 500 };
 //Now lets try to crank down the channel 1 wait time, if we can 5000 works but it wont catch channel 4 ever
 static XDATA uint32 delayedWaitTimes[NUM_CHANNELS] = { 0, 700, 700, 700 };
-static XDATA uint32 catch_offsets[NUM_CHANNELS] = { 0, 0, 0, 0 };
 
-static uint8 wake_error_count = 0;
 static uint8 last_catch_channel = 0;
 BIT needsTimingCalibration = 1;
 BIT usbEnabled = 1;
-BIT writing_flash = 0;
-static uint8 save_IEN0;
-static uint8 save_IEN1;
-static uint8 save_IEN2;
 
-static uint8 XDATA last_dex_battery = 0;
 unsigned char XDATA PM2_BUF[7] = { 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x04 };
 unsigned char XDATA dmaDesc[8] =
 { 0x00, 0x00, 0xDF, 0xBE, 0x00, 0x07, 0x20, 0x42 };
 
 static volatile BIT usb_connected = 0;
-static volatile BIT got_an_error = 0;
-static volatile BIT doing_retry = 0;
 
-static uint32 XDATA gsm_delay = 0;	// how long we spent uplinking
 static uint32 XDATA lastraw = 0;
 static uint32 XDATA lastfiltered = 0;
 static uint32 XDATA lasttime = 0;
-static uint32 XDATA general_timer = 0;
 volatile uint8 sequential_missed_packets = 0;
-static char XDATA lastLocation[30];
-static char XDATA messageBuffer[160];
-static char XDATA captureBuffer[250];
-static char XDATA composeBuffer[250];
-static char XDATA stringBuffer[250];
-static char XDATA minus[2]="-";
 
 typedef struct _parakeet_settings
 {
@@ -509,19 +476,13 @@ void uartDisable ()
 }
 
 void blink_yellow_led ()
-{
-    if (status_lights)
-    {
-        LED_YELLOW (((getMs () / 250) % 2));	//Blink quarter seconds
-    }
+{    
+        LED_YELLOW (((getMs () / 250) % 2));	//Blink quarter seconds    
 }
 
 void blink_red_led ()
-{
-    if (status_lights)
-    {
-        LED_RED (((getMs () / 250) % 2));	//Blink 1/4 seconds
-    }
+{    
+        LED_RED (((getMs () / 250) % 2));	//Blink 1/4 seconds    
 }
 
 int8 getPacketRSSI(Dexcom_packet * p)
@@ -648,7 +609,6 @@ void print_packet(Dexcom_packet * pPkt)
     {
 
         // Classic 3 field protocol for serial/bluetooth only
-        if (!use_gsm)
             printf ("%lu %hhu %d", dex_num_decoder (pPkt->raw), pPkt->battery,
                     adcConvertToMillivolts (adcRead (0)));
     }
@@ -673,11 +633,8 @@ __reentrant
     {
         if (i != 13)
             setDigitalOutput (i, LOW);	// skip P1_3 for dtr line
-    }
-    if (!use_gsm)
-    {
-        P0INP = 0;  //set pull resistors on pins 0_0 - 0_5 to low
-    }
+    }    
+        P0INP = 0;  //set pull resistors on pins 0_0 - 0_5 to low    
 }
 
 void reset_offsets ()

@@ -171,33 +171,6 @@ long unsigned int chk;
 
 #define FLASH_SETTINGS 			(0x7760)
 
-#ifdef USE_SMS_CONTROL
-static XDATA char* sfind;
-static XDATA char* cfind;
-static XDATA char* nfind;
-
-static XDATA char dynamic_transmitter_id[6];
-
-// writeBuffer holds the data from the computer that we want to write in to flash.
-XDATA uint8 writeBuffer[sizeof(settings)];
-
-// flashWriteDmaConfig holds the configuration of DMA channel 0, which we use to
-// transfer the data from writeBuffer in to flash.
-XDATA DMA_CONFIG flashWriteDmaConfig;
-
-// startFlashWrite is a small piece of code we store in RAM which initiates the flash write.
-// According to datasheet section 12.3.2.1, this code needs to be 2-aligned if it is executed
-// from flash. SDCC does not have a good way of 2-aligning code, so we choose to put the code in
-// RAM instead of flash.
-XDATA uint8 startFlashWrite[] =
-{
-    0x75, 0xAE, 0x02,  // mov _FCTL, #2 :   Sets FCTRL.WRITE bit to 1, initiating a write to flash.
-    0x22               // ret           :   Returns to the calling function.
-};
-
-
-#endif
-
 typedef struct _Dexcom_packet
 {
     uint8 len;
@@ -461,106 +434,6 @@ end_parse:
     if (*str_ptr == 0x0) gret = myEOF;
     return gret;
 }
-
-#ifdef USE_SMS_CONTROL
-//////// from xBridge2 by jstevensog
-
-/* Flash memory functions and variables.
-All of these are to do with erasing and writing data into Flash memory.  Used to
-store the settings of xBridge.
-*/
-void dma_Init()
-__reentrant
-{
-    // Configure the flash write timer.  See section 12.3.5 of the datasheet.
-    FWT = 32;
-
-    // Set up the DMA configuration block we use for writing to flash (See Figure 21 of the datasheet).
-    // LENL and LENH are sent later when we know how much data to write.
-    flashWriteDmaConfig.SRCADDRH = (unsigned short)&writeBuffer >> 8;
-    flashWriteDmaConfig.SRCADDRL = (unsigned char)&writeBuffer;
-    flashWriteDmaConfig.DESTADDRH = XDATA_SFR_ADDRESS(FWDATA) >> 8;
-    flashWriteDmaConfig.DESTADDRL = XDATA_SFR_ADDRESS(FWDATA);
-
-    // WORDSIZE = 0     : byte
-    // TMODE = 0        : single mode
-    // TRIG = 0d18      : flash
-    flashWriteDmaConfig.DC6 = 18;
-
-    // SRCINC = 01      : yes
-    // DESTINC = 00     : no
-    // IRQMASK = 0      : no   *datasheet said this bit should be 1
-    // M8 = 0           : 8-bit transfer
-    // PRIORITY = 0b10  : high
-    flashWriteDmaConfig.DC7 = 0b01000010;
-
-    DMA0CFG = (uint16)&flashWriteDmaConfig;
-}
-/* eraseFlash:	A function to erase a page of flash.
-Note:  This erases a full page of flash, not just the data at the address you specify.
-		It works out which page the address you speicfy is in, and erases that page.
-		Flash MUST be erased (set every bit in every byte of the flasn page to 1) before
-		you can change the data by writing to it.
-Parameters:
-	uint16	address		Address of the data that you want erased.  Read the note above.
-Returns:	void
-Uses:	The DMA channel initialised previously.
-*/
-void eraseFlash(uint16 address)
-{
-    // first erase the page
-    FADDRH  = address >> 9;	// high byte of address / 2
-    FADDRL =0;
-    FCTL = 1;				// Set FCTL.ERASE to 1 to initiate the erasing.
-    __asm nop __endasm;		// Datasheet says a NOP is necessary after the instruction that initiates the erase.
-    __asm nop __endasm;		// We have extra NOPs to be safe.
-    __asm nop __endasm;
-    __asm nop __endasm;
-    while(FCTL & 0x80) {};	// Wait for erasing to be complete.
-}
-
-/* writeToFlash:	A function to write a value into flash.
-Note:  This writes writebuffer to the specified flash address.
-Parameters:
-	uint16	address		Address of the data that you want erased.  Read the note above.
-	uint16	length		The length of the data to write.  Basically the amount of data in writeBuffer.
-Returns:	void
-Uses:	The DMA channel initialised previously.
-	global writeBuffer	Stores the data to be written to flash.
-*/
-void writeToFlash(uint16 address, uint16 length)
-{
-    FADDR = address >> 1;	// not sure if i need to do this again.
-    flashWriteDmaConfig.VLEN_LENH = length >> 8;
-    flashWriteDmaConfig.LENL = length;
-    DMAIRQ &= ~(1<<0);		// Clear DMAIF0 so we can poll it to see when the transfer finishes.
-    DMAARM |= (1<<0);
-    __asm lcall _startFlashWrite __endasm;
-    while(!(DMAIRQ & (1<<0))) {}	// wait for the transfer to finish by polling DMAIF0
-    while(FCTL & 0xC0) {}		// wait for last word to finish writing by polling BUSY and SWBUSY
-}
-
-// Function to save all settings to flash
-void saveSettingsToFlash()
-{
-    writing_flash=1;
-    dma_Init();
-    settings.checksum=checksum();
-#ifdef DEBUG
-    usb_printf("BEFORE Setting txid: %lu\r\n",settings.dex_tx_id);
-#endif
-    usb_printf("Save flash size: %d to location %x\r\n",sizeof(settings),FLASH_SETTINGS);
-    memcpy(&writeBuffer, &settings, sizeof(settings));
-    eraseFlash(FLASH_SETTINGS);
-    writeToFlash(FLASH_SETTINGS, sizeof(settings));
-    writing_flash=0;
-    usb_printf("settings saved to flash\r\n");
-    loadSettingsFromFlash();
-    nicedelayMs(10000);
-}
-
-#endif
-
 void clearSettings()
 {
     memset (&settings, 0, sizeof (settings));
@@ -718,16 +591,6 @@ char XDATA SrcNameTable[32] = { '0', '1', '2', '3', '4', '5', '6', '7',
                                 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P',
                                 'Q', 'R', 'S', 'T', 'U', 'W', 'X', 'Y'
                               };
-
-void dexcom_src_to_ascii()
-{
-    dynamic_transmitter_id[0] = SrcNameTable[(dex_tx_id >> 20) & 0x1F];
-    dynamic_transmitter_id[1] = SrcNameTable[(dex_tx_id >> 15) & 0x1F];
-    dynamic_transmitter_id[2] = SrcNameTable[(dex_tx_id >> 10) & 0x1F];
-    dynamic_transmitter_id[3] = SrcNameTable[(dex_tx_id >> 5) & 0x1F];
-    dynamic_transmitter_id[4] = SrcNameTable[(dex_tx_id >> 0) & 0x1F];
-    dynamic_transmitter_id[5] = 0;
-}
 
 void doServices ()
 {

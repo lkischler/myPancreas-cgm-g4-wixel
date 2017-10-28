@@ -31,7 +31,7 @@ void killWithWatchdog();
 //                                   1 = TRUE       0 = FALSE                                       //
 //                                                                                                  //
 
-static CODE const char transmitter_id[] = "ABCDE";                                                  //
+static CODE const char transmitter_id[] = "6GGLT";                                                  //
 
 //                                                                                                  //
 static volatile BIT only_listen_for_my_transmitter = 1;	//
